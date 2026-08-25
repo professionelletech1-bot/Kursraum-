@@ -134,6 +134,22 @@
   .add-indiv-row input:focus{outline:none;border-color:var(--gold);}
   .empty-hint{font-size:.85rem;color:var(--muted);padding:20px 0;text-align:center;}
 
+  /* ---- INTERROGATIONS ---- */
+  .interro-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .interro-row:last-of-type{border-bottom:none;}
+  .interro-title{font-weight:700;color:var(--maroon);font-size:.88rem;flex:1;min-width:120px;}
+  .interro-links{display:flex;gap:10px;flex-wrap:wrap;}
+  .interro-links a{font-size:.78rem;color:var(--gold);font-weight:600;text-decoration:underline;}
+  .interro-del{background:none;border:none;color:var(--err,#b3403a);font-size:1rem;padding:2px 6px;cursor:pointer;}
+  .interro-add-row{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);display:flex;flex-direction:column;gap:8px;}
+  .interro-title-input{
+    width:100%;font-family:'Inter',sans-serif;font-size:.88rem;color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:9px 10px;background:var(--cream);
+  }
+  .interro-title-input:focus{outline:none;border-color:var(--gold);background:var(--paper);}
+  .interro-file-label{font-size:.74rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;}
+  .interro-upload-status{font-size:.76rem;color:var(--gold);font-weight:600;}
+
   /* CALENDRIER */
   .cal-slot{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
   .cal-slot .cal-vname{font-weight:700;color:var(--maroon);font-size:.92rem;}
@@ -261,6 +277,7 @@
     <a href="#calendrier" data-route="calendrier"><span class="em">&#128197;</span> Calendrier</a>
     <a href="#coursb2" data-route="coursb2"><span class="em">&#127891;</span> Cours B2</a>
     <a href="#individuels" data-route="individuels"><span class="em">&#128100;</span> Cours individuels</a>
+    <a href="#interrogations" data-route="interrogations"><span class="em">&#128203;</span> Interrogations</a>
   </nav>
   <div class="drawer-foot">
     Togo — Lomé · Sokodé &nbsp;|&nbsp; Bénin — Cotonou<br>
@@ -271,16 +288,18 @@
 <div id="lockModalOverlay">
   <div id="lockModal">
     <h3 id="lockModalTitle">Accès modification</h3>
-    <p id="lockModalSub">Entrez le code fourni par l'administration pour modifier le suivi.</p>
+    <p id="lockModalSub">Entrez votre code (professeur ou administrateur) pour modifier le suivi.</p>
     <div class="lock-status locked" id="lockStatus">&#128274; Verrouillé — lecture seule</div>
     <div class="lock-row" id="codeRow">
       <input type="password" id="codeInput" placeholder="Code d'accès">
       <button class="primary" id="unlockBtn">Déverrouiller</button>
     </div>
     <div class="lock-msg" id="lockMsg">Code incorrect.</div>
-    <button class="change-code-link" id="showChangeCode" style="display:none;">Changer le code d'accès</button>
+    <button class="change-code-link" id="showChangeCode" style="display:none;">Changer les codes d'accès</button>
     <div id="changeCodeBox">
-      <input type="text" id="newCode" placeholder="Nouveau code">
+      <input type="text" id="newCode" placeholder="Nouveau code professeurs">
+      <input type="text" id="newAdminCode" placeholder="Nouveau code administrateur">
+      <input type="text" id="newDirectorCode" placeholder="Nouveau code directeur pédagogique">
       <button class="ghost" id="saveCodeBtn">Enregistrer</button>
     </div>
     <button id="closeLockModal">Fermer</button>
@@ -414,6 +433,16 @@
   <div class="card" id="indivDetailCard"></div>
 </div>
 
+<!-- INTERROGATIONS -->
+<div class="view" id="view-interrogations">
+  <h2 class="section-title">Interrogations</h2>
+  <p class="section-sub">Sujets d'examen et corrigés (PDF), classés par niveau</p>
+  <div class="readonly-banner" id="interroReadonlyBanner" style="display:none;">
+    &#128274; Lecture seule. Touchez le cadenas en haut à droite pour entrer le code et ajouter des fichiers.
+  </div>
+  <div id="interroContainer"><div class="skeleton">Chargement…</div></div>
+</div>
+
 <div id="syncPill" class="saving"><span class="dot"></span><span id="syncLabel">Chargement…</span></div>
 
 <script type="module">
@@ -421,6 +450,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCP-2TzbA-yxx2rq-GA0efkNv2gvTQzqfk",
@@ -435,6 +465,7 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
+const fbStorage = getStorage(fbApp);
 const COLLECTION = "kursraum_store";
 
 let readyResolve;
@@ -477,6 +508,31 @@ window.storage = {
     }catch(e){
       console.error("storage.delete erreur :", e);
       return null;
+    }
+  }
+};
+
+window.fileStorage = {
+  async upload(path, file){
+    await authReady;
+    try{
+      const storageRef = ref(fbStorage, path);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      return { path, url };
+    }catch(e){
+      console.error("fileStorage.upload erreur :", e);
+      throw e;
+    }
+  },
+  async delete(path){
+    await authReady;
+    try{
+      await deleteObject(ref(fbStorage, path));
+      return true;
+    }catch(e){
+      console.error("fileStorage.delete erreur :", e);
+      return false;
     }
   }
 };
@@ -529,11 +585,19 @@ const PROFS = [
 
 const STORE_KEY = "kursraum-suivi-v1";
 const ACCESS_KEY = "kursraum-access-code";
+const ADMIN_ACCESS_KEY = "kursraum-admin-code";
+const DIRECTOR_ACCESS_KEY = "kursraum-directeur-code";
 const DEFAULT_CODE = "KURSRAUM2026";
+const DEFAULT_ADMIN_CODE = "ADMIN-KURSRAUM2026";
+const DEFAULT_DIRECTOR_CODE = "DIRECTEUR-KURSRAUM2026";
 
 let store = {};
 let currentCode = DEFAULT_CODE;
+let currentAdminCode = DEFAULT_ADMIN_CODE;
+let currentDirectorCode = DEFAULT_DIRECTOR_CODE;
 let unlocked = false;
+let isAdmin = false;
+let userRole = "prof"; // "prof" | "admin" | "directeur"
 
 function setSync(state, label){
   const el = document.getElementById("syncPill");
@@ -561,6 +625,16 @@ async function loadAccessCode(){
     if(res && res.value){ currentCode = res.value; }
     else{ await window.storage.set(ACCESS_KEY, DEFAULT_CODE, true); currentCode = DEFAULT_CODE; }
   }catch(e){ currentCode = DEFAULT_CODE; }
+  try{
+    const res2 = await window.storage.get(ADMIN_ACCESS_KEY, true);
+    if(res2 && res2.value){ currentAdminCode = res2.value; }
+    else{ await window.storage.set(ADMIN_ACCESS_KEY, DEFAULT_ADMIN_CODE, true); currentAdminCode = DEFAULT_ADMIN_CODE; }
+  }catch(e){ currentAdminCode = DEFAULT_ADMIN_CODE; }
+  try{
+    const res3 = await window.storage.get(DIRECTOR_ACCESS_KEY, true);
+    if(res3 && res3.value){ currentDirectorCode = res3.value; }
+    else{ await window.storage.set(DIRECTOR_ACCESS_KEY, DEFAULT_DIRECTOR_CODE, true); currentDirectorCode = DEFAULT_DIRECTOR_CODE; }
+  }catch(e){ currentDirectorCode = DEFAULT_DIRECTOR_CODE; }
 }
 
 function defaultMonday(){
@@ -627,6 +701,11 @@ function render(){
     document.querySelector('[data-route="individuels"]').classList.add("active");
     document.getElementById("appBarTitle").textContent = "Cours individuels";
     renderIndividuelsList();
+  }else if(route === "interrogations"){
+    document.getElementById("view-interrogations").classList.add("active");
+    document.querySelector('[data-route="interrogations"]').classList.add("active");
+    document.getElementById("appBarTitle").textContent = "Interrogations";
+    renderInterrogations();
   }else if(route.startsWith("individuel/")){
     const id = route.split("/")[1];
     document.getElementById("view-individuel-detail").classList.add("active");
@@ -1048,6 +1127,101 @@ document.getElementById("addIndivBtn").addEventListener("click", async () => {
 });
 document.getElementById("newIndivName").addEventListener("keydown", (e) => { if(e.key === "Enter") document.getElementById("addIndivBtn").click(); });
 
+/* ---------- INTERROGATIONS ---------- */
+function interroKey(niveau){ return "interrogations::" + niveau; }
+function interroArr(niveau){ return store[interroKey(niveau)] || []; }
+
+function renderInterrogations(){
+  const container = document.getElementById("interroContainer");
+  document.getElementById("interroReadonlyBanner").style.display = unlocked ? "none" : "block";
+  container.innerHTML = NIVEAUX.map(niveau => {
+    const entries = interroArr(niveau);
+    return `
+      <div class="card" style="margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;color:var(--maroon-dark);font-family:'Fraunces',serif;font-size:1.05rem;">${niveau}</h3>
+        ${entries.length === 0 ? `<div class="empty-hint" style="padding:8px 0;">Aucune interrogation ajoutée.</div>` : entries.map(e => `
+          <div class="interro-row" data-id="${e.id}">
+            <div class="interro-title">${e.titre || "Interrogation"}</div>
+            <div class="interro-links">
+              ${e.examUrl ? `<a href="${e.examUrl}" target="_blank" rel="noopener">Sujet (PDF)</a>` : ""}
+              ${e.correctionUrl ? `<a href="${e.correctionUrl}" target="_blank" rel="noopener">Corrigé (PDF)</a>` : ""}
+            </div>
+            ${unlocked ? `<button class="interro-del" data-del="${e.id}" data-niveau="${niveau}" title="Supprimer">&#10005;</button>` : ""}
+          </div>
+        `).join("")}
+        ${unlocked ? `
+          <div class="interro-add-row" data-niveau="${niveau}">
+            <input type="text" class="interro-title-input" placeholder="Titre (ex. Interrogation 1 — Lektion 1-3)">
+            <label class="interro-file-label">Sujet (PDF)<input type="file" accept="application/pdf" class="interro-exam-input"></label>
+            <label class="interro-file-label">Corrigé (PDF)<input type="file" accept="application/pdf" class="interro-correction-input"></label>
+            <button class="primary interro-add-btn" type="button">+ Ajouter</button>
+            <div class="interro-upload-status" style="display:none;"></div>
+          </div>
+        ` : ""}
+      </div>
+    `;
+  }).join("");
+
+  container.querySelectorAll(".interro-del").forEach(btn => {
+    btn.addEventListener("click", () => deleteInterrogation(btn.dataset.niveau, btn.dataset.del));
+  });
+  container.querySelectorAll(".interro-add-row").forEach(row => {
+    const niveau = row.dataset.niveau;
+    row.querySelector(".interro-add-btn").addEventListener("click", () => addInterrogation(niveau, row));
+  });
+}
+
+async function addInterrogation(niveau, row){
+  if(!unlocked) return;
+  const titleInput = row.querySelector(".interro-title-input");
+  const examInput = row.querySelector(".interro-exam-input");
+  const correctionInput = row.querySelector(".interro-correction-input");
+  const statusEl = row.querySelector(".interro-upload-status");
+  const titre = titleInput.value.trim();
+  const examFile = examInput.files[0];
+  const correctionFile = correctionInput.files[0];
+  if(!titre || (!examFile && !correctionFile)){
+    alert("Merci d'indiquer un titre et au moins un fichier PDF (sujet ou corrigé).");
+    return;
+  }
+  statusEl.style.display = "block";
+  statusEl.textContent = "Envoi en cours…";
+  const id = "interro" + Date.now();
+  const entry = { id, titre, addedAt: new Date().toLocaleDateString("fr-FR") };
+  try{
+    if(examFile){
+      const path = `interrogations/${niveau}/${id}-sujet-${examFile.name}`;
+      const res = await window.fileStorage.upload(path, examFile);
+      entry.examUrl = res.url; entry.examPath = path; entry.examName = examFile.name;
+    }
+    if(correctionFile){
+      const path = `interrogations/${niveau}/${id}-corrige-${correctionFile.name}`;
+      const res2 = await window.fileStorage.upload(path, correctionFile);
+      entry.correctionUrl = res2.url; entry.correctionPath = path; entry.correctionName = correctionFile.name;
+    }
+    store[interroKey(niveau)] = interroArr(niveau).concat([entry]);
+    await saveStore();
+    renderInterrogations();
+  }catch(e){
+    statusEl.textContent = "Échec de l'envoi, réessayez.";
+  }
+}
+
+async function deleteInterrogation(niveau, id){
+  if(!unlocked) return;
+  if(!confirm("Supprimer cette interrogation pour tout le monde ?")) return;
+  const entries = interroArr(niveau);
+  const entry = entries.find(e => e.id === id);
+  store[interroKey(niveau)] = entries.filter(e => e.id !== id);
+  await saveStore();
+  renderInterrogations();
+  if(entry){
+    if(entry.examPath) window.fileStorage.delete(entry.examPath);
+    if(entry.correctionPath) window.fileStorage.delete(entry.correctionPath);
+  }
+}
+
+
 function renderIndividuelDetail(id){
   const entry = individuelsArr().find(e => e.id === id);
   if(!entry){ navigate("individuels"); return; }
@@ -1084,12 +1258,17 @@ function applyLockModalUI(){
   const status = document.getElementById("lockStatus");
   const toggle = document.getElementById("lockToggle");
   const resetBtn = document.getElementById("resetBtn");
-  if(resetBtn) resetBtn.disabled = !unlocked;
+  if(resetBtn) resetBtn.disabled = !isAdmin;
   if(unlocked){
     status.className = "lock-status unlocked";
-    status.innerHTML = "&#128275; Déverrouillé — vous pouvez modifier";
+    const roleLabel = userRole === "admin" ? "Administrateur"
+      : userRole === "directeur" ? "Directeur pédagogique"
+      : null;
+    status.innerHTML = roleLabel
+      ? `&#128275; Déverrouillé — ${roleLabel} (accès complet)`
+      : "&#128275; Déverrouillé — vous pouvez modifier";
     document.getElementById("codeRow").style.display = "none";
-    document.getElementById("showChangeCode").style.display = "inline";
+    document.getElementById("showChangeCode").style.display = isAdmin ? "inline" : "none";
     toggle.innerHTML = "&#128275;";
     toggle.className = "icon-btn unlocked";
   }else{
@@ -1106,8 +1285,28 @@ function applyLockModalUI(){
 document.getElementById("unlockBtn").addEventListener("click", () => {
   const val = document.getElementById("codeInput").value.trim();
   const msg = document.getElementById("lockMsg");
-  if(val && val === currentCode){
+  if(val && val === currentAdminCode){
     unlocked = true;
+    isAdmin = true;
+    userRole = "admin";
+    msg.style.display = "none";
+    document.getElementById("codeInput").value = "";
+    applyLockModalUI();
+    render();
+    setTimeout(closeLockModalFn, 500);
+  }else if(val && val === currentDirectorCode){
+    unlocked = true;
+    isAdmin = true;
+    userRole = "directeur";
+    msg.style.display = "none";
+    document.getElementById("codeInput").value = "";
+    applyLockModalUI();
+    render();
+    setTimeout(closeLockModalFn, 500);
+  }else if(val && val === currentCode){
+    unlocked = true;
+    isAdmin = false;
+    userRole = "prof";
     msg.style.display = "none";
     document.getElementById("codeInput").value = "";
     applyLockModalUI();
@@ -1120,18 +1319,34 @@ document.getElementById("unlockBtn").addEventListener("click", () => {
 document.getElementById("codeInput").addEventListener("keydown", (e) => { if(e.key === "Enter") document.getElementById("unlockBtn").click(); });
 
 document.getElementById("showChangeCode").addEventListener("click", () => {
+  if(!isAdmin) return;
   const box = document.getElementById("changeCodeBox");
   box.style.display = box.style.display === "none" ? "flex" : "none";
 });
 document.getElementById("saveCodeBtn").addEventListener("click", async () => {
+  if(!isAdmin) return;
   const nc = document.getElementById("newCode").value.trim();
-  if(!nc) return;
+  const nac = document.getElementById("newAdminCode").value.trim();
+  const ndc = document.getElementById("newDirectorCode").value.trim();
+  if(!nc && !nac && !ndc) return;
   try{
-    await window.storage.set(ACCESS_KEY, nc, true);
-    currentCode = nc;
-    document.getElementById("newCode").value = "";
+    if(nc){
+      await window.storage.set(ACCESS_KEY, nc, true);
+      currentCode = nc;
+      document.getElementById("newCode").value = "";
+    }
+    if(nac){
+      await window.storage.set(ADMIN_ACCESS_KEY, nac, true);
+      currentAdminCode = nac;
+      document.getElementById("newAdminCode").value = "";
+    }
+    if(ndc){
+      await window.storage.set(DIRECTOR_ACCESS_KEY, ndc, true);
+      currentDirectorCode = ndc;
+      document.getElementById("newDirectorCode").value = "";
+    }
     document.getElementById("changeCodeBox").style.display = "none";
-    alert("Nouveau code d'accès enregistré. Pensez à le communiquer aux professeurs.");
+    alert("Nouveau(x) code(s) enregistré(s). Pensez à le(s) communiquer.");
   }catch(e){ alert("Échec de l'enregistrement, réessayez."); }
 });
 
